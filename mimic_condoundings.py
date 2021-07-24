@@ -1,20 +1,24 @@
-
+# %%
 
 import pandas as pd
+import numpy as np
 
-services = pd.read_csv("./mimic-iii-clinical-database-1.4/SERVICES.csv", parse_dates=['TRANSFERTIME'])
-transfers = pd.read_csv("./mimic-iii-clinical-database-1.4/TRANSFERS.csv", parse_dates=['INTIME', 'OUTTIME'])
-callout = pd.read_csv("./mimic-iii-clinical-database-1.4/CALLOUT.csv", parse_dates=['OUTCOMETIME'])
-patients = pd.read_csv("./mimic-iii-clinical-database-1.4/PATIENTS.csv",
-                       parse_dates=['DOD', 'DOB', 'DOD_HOSP', 'DOD_SSN'])
-admission = pd.read_csv("./mimic-iii-clinical-database-1.4/ADMISSIONS.csv",parse_dates=["ADMITTIME","DISCHTIME","DEATHTIME"])
+pd.set_option('mode.chained_assignment', None)
 
+services = pd.read_csv("./data/SERVICES.csv", parse_dates=['TRANSFERTIME'])
+transfers = pd.read_csv("./data/TRANSFERS.csv", parse_dates=['INTIME', 'OUTTIME'])
+callout = pd.read_csv("./data/CALLOUT.csv", parse_dates=['OUTCOMETIME'])
+patients = pd.read_csv("./data/PATIENTS.csv", parse_dates=['DOD', 'DOB', 'DOD_HOSP', 'DOD_SSN'])
+admissions = pd.read_csv("./data/ADMISSIONS.csv", parse_dates=["ADMITTIME"])
 
+oasis = pd.read_csv("./data/oasis.csv")
+elixhauser = pd.read_csv("./data/elixhauser.csv")
 
 services.columns = services.columns.str.lower()
 transfers.columns = transfers.columns.str.lower()
-
-
+callout = callout.rename(columns=str.lower)
+patients = patients.rename(columns=str.lower)
+admissions = admissions.rename(columns=str.lower)
 
 # In[ ]:
 
@@ -33,7 +37,7 @@ row_ids = row_ids[row_ids < 2]
 one_service_only = services[services['hadm_id'].isin(row_ids.index)]
 med_service_only = one_service_only[one_service_only['curr_service'] == 'MED']
 
-
+# %%
 
 # In[ ]:
 # Left join transfers to med_service_only.
@@ -63,29 +67,20 @@ inboarders = df3[(df3['curr_service'] != 'MED') &
 
 inboarders = inboarders[['intime', 'outtime', 'curr_careunit']]
 
-
+# %%
 
 df3.groupby(["curr_careunit", "curr_service"]).size()
 
-
-
 df3[df3.curr_service.isna()].curr_careunit.value_counts()
-
-
 
 df3.curr_service.isna().sum()
 
-
-
 inboarders.shape
-
-
 
 df4.shape
 
+# %%
 
-
-import numpy as np
 
 # In[ ]:
 
@@ -93,7 +88,7 @@ import numpy as np
 # non-MICU patients (i.e. cared for by other ICU teams) physically occupying MICU beds
 
 # Start with a copy of the dataframe containing all the MICU patients
-df5 = df4
+df5 = df4.copy()
 
 # Create a column that defines 1 = patient being cared for by a MICU team in a location other
 # than a MICU (e.g. in the SICU). We default to 0 here, then change the value if appropriate during for loop below.
@@ -127,15 +122,13 @@ for row_index, row in df5.iterrows():
     if (row['curr_careunit'] == 'MICU'):
         df5.loc[row_index, 'micu_team'] = 1
 
-
+# %%
 
 df5.micu_team.value_counts()
 
-
-
 df5.head()
 
-
+# %%
 
 # In[6]:
 
@@ -152,8 +145,8 @@ for row_index, row in df5.iterrows():
 
         # Determine how many patients (boarders + non-boarders) were assigned to the MICU Orange team at that time
         # NOT INCLUSIVE OF THIS PATIENT
-        census = df5[(df5['transfers.intime'] < row['transfers.intime']) &
-                     (df5['transfers.outtime'] > row['transfers.intime']) &
+        census = df5[(df5['intime'] < row['intime']) &
+                     (df5['outtime'] > row['intime']) &
                      (df5['micu_team'] == 0)]
 
         # Determine how many NON-boarders the MICU-Orange service was taking care of at that time.
@@ -203,22 +196,8 @@ for row_index, row in df5.iterrows():
     df5.loc[row_index, 'team_outboarders'] = len(outboarders)
     df5.loc[row_index, 'team_census_same_room'] = len(census_same_room)
 
-
-
-# In[7]:
-
-# Store df5v2
-# mimic_common.df_to_csv('df5v2.csv', df5)
-
-# Load df5v2 from stored CSV file (if we don't want to have to re-generate it)
-# df5 = pd.read_csv('~/dev/data/mimic3_local_storage/df5v2.csv', parse_dates=[8, 15, 20])
-
-
-# In[8]:
-
-# Team census and outboarder count for the OTHER MICU team (the one NOT caring for a given patient)
-df5.loc['other_team_census'] = np.nan
-df5.loc['other_team_outboarders'] = np.nan
+df5['other_team_census'] = np.nan
+df5['other_team_outboarders'] = np.nan
 
 # For each MICU patient...
 for row_index, row in df5.iterrows():
@@ -233,8 +212,8 @@ for row_index, row in df5.iterrows():
 
         # Determine how many boarders the MICU-Green service was taking care of at that time.
         outboarders = census[census['curr_careunit'] != 'MICU']
-    #         outboarders = df5[(df5['transfers.intime'] < row['transfers.intime']) &
-    #                           (df5['transfers.outtime'] > row['transfers.intime']) &
+    #         outboarders = df5[(df5['intime'] < row['intime']) &
+    #                           (df5['outtime'] > row['intime']) &
     #                           (df5['micu_team'] == 1) &
     #                           (df5['curr_ward'] != 'CC7D')]
 
@@ -248,15 +227,15 @@ for row_index, row in df5.iterrows():
 
         # Determine how many boarders the MICU-Orange service was taking care of at that time.
         outboarders = census[census['curr_careunit'] != 'MICU']
-    #         outboarders = df5[(df5['transfers.intime'] < row['transfers.intime']) &
-    #                           (df5['transfers.outtime'] > row['transfers.intime']) &
+    #         outboarders = df5[(df5['intime'] < row['intime']) &
+    #                           (df5['outtime'] > row['intime']) &
     #                           (df5['micu_team'] == 0) &
     #                           (df5['curr_ward'] != 'CC6D')]
 
     df5.loc[row_index, 'other_team_census'] = len(census.index)
     df5.loc[row_index, 'other_team_outboarders'] = len(outboarders)
 
-
+# %%
 
 
 # Location restrict to the MSICU
@@ -276,8 +255,6 @@ for row_index, row in df5.iterrows():
                              (msicu_transfers['outtime'] > row['intime'])]
 
     df5.loc[row_index, 'msicu_team_census'] = len(census.index)
-
-
 
 # In[14]:
 
@@ -311,153 +288,89 @@ df5.other_remaining_beds[(df5['micu_team'] == 0)] = (
 df5.other_remaining_beds[(df5['micu_team'] == 1)] = (
             8 - (df5['other_team_census'] - df5['other_team_outboarders']) - df5['total_boarder_count'])
 
-
-
 df5['initial_remaining_beds'] = df5['remaining_beds'] + df5['other_remaining_beds'] + df5['msicu_team_census']
-
-
 
 df5.columns
 
-
-
 df5.icustay_id.nunique()
 
-
+# %%
 
 callout.columns = callout.columns.str.lower()
 callout.columns
 
-
-
 df6 = pd.merge(df5, callout, left_on='hadm_id', right_on="hadm_id", how='left')
-
-
 
 ## define outcome
 ## discharge from ICU: 0
 ## gg at ICU or transfer to other icu
 
-
-
 callout.columns
-
-
 
 callout.callout_outcome.value_counts()
 
-
-
 patients.columns = patients.columns.str.lower()
-
-
 
 patients.expire_flag.value_counts()
 
-
-
 patients.subject_id.nunique()
-
-
 
 patients.columns
 
-
-
 patients.dod.isnull().sum()
-
-
 
 df6.shape
 
-
+# %%
 
 df7 = pd.merge(df6, patients, left_on='subject_id_x', right_on="subject_id", how='left')
 
-
-
 list(df7.columns.sort_values())
-
-
 
 df7.shape
 
-
-
 df7 = df7.loc[:, ~df7.columns.duplicated()]
 
-
-
 indicator = pd.DataFrame(df7.groupby('subject_id_x').outtime.max())
-
-
 
 indicator = indicator.reset_index()
 indicator.columns = ['subject_id_x', 'lasttime']
 
-
-
 indicator
-
-
 
 indicator.lasttime.dt.date
 
-
+# %%
 
 df8 = pd.merge(df7, indicator, how='left')
 df8 = df8.loc[df8.outtime == df8.lasttime, :]
 
-
-
 df8 = df8.sort_values('outcometime').groupby("subject_id_x").tail(1)
 
-
-
 df8.groupby("subject_id_x").size().sort_values()
-
-
 
 # df8.loc[df8.subject_id_x == 87906,:]
 # print(df8.loc[df8.subject_id_x == 87906, ['hadm_id', 'hadm_id', 'lasttime', 'intime', 'outtime', 'dod', 'updatetime', 'outcometime', 'curr_careunit_x', 'callout_status', 'callout_outcome']])
 
-
-
 pd.DataFrame(df8.expire_flag, df8.dod.dt.date - df8.outtime.dt.date)
-
-
 
 df8.loc[:, ["expire_flag", "dod", 'outtime', 'callout_outcome']]
 
-
-
 df8["within_24_hours"] = df8.dod.dt.date - df8.outtime.dt.date
-
-
 
 df8['within_24_hours'] = df8.apply(lambda x: 1 if x.within_24_hours <= pd.Timedelta('1 days') else 0, axis=1)
 
-
-
 df8.loc[:, ['dod', 'outtime', 'expire_flag', 'within_24_hours']]
-
-
 
 df8.groupby(['expire_flag', 'within_24_hours']).size()
 
-
-
 df8.head()
-
-
 
 df8.groupby(["boarder_status", "expire_flag"]).size()
 
-
-
 df8.groupby(["boarder_status", "within_24_hours"]).size()
 
-
+# %%
 
 a = 5544
 b = 5643
@@ -469,7 +382,7 @@ p = (a + c) / (a + b + c + d)
 n1 = a + b
 n2 = c + d
 
-
+# %%
 
 a = 9318
 b = 1869
@@ -481,90 +394,48 @@ p = (a + c) / (a + b + c + d)
 n1 = a + b
 n2 = c + d
 
-
+# %%
 
 p1
 
-
-
 p2
-
-
 
 (p1 - p2) / np.sqrt(p * (1 - p) * (1 / n1 + 1 / n2))
 
-
+# %%
 
 df7 = df7.loc[:, ~df7.columns.duplicated()]
 
-
-
 df7.groupby("subject_id_x").icustay_id.size().sort_values().describe()
-
-
 
 df7.loc[df7.subject_id_x == 109, 'outtime'].sort_values()
 
-
-
 df7.loc[df7.subject_id_x == 109, ['dod']]
 
+# %%
 
+age = pd.merge(admissions, patients, on="subject_id")
 
+age["age"] = (age.admittime.dt.year - age.dob.dt.year)
 
-# In[13]:
-
-# Store df5v2c
-# mimic_common.df_to_csv('df5v2c.csv', df5)
-
-# Load df5v2c from stored CSV file (if we don't want to have to re-generate it)
-# df5 = pd.read_csv('~/dev/data/mimic3_local_storage/df5v2c.csv', parse_dates=[8, 15, 20])
-
-
-# In[14]:
-
-# Add a column that estimates the EXPECTED number of outboarders
-df5['expected_team_outboarders'] = np.nan
-df5.expected_team_outboarders[(df5['micu_team'] == 0)] = (df5['team_census'] - (8 - df5['cc6d_boarder_count']))
-df5.expected_team_outboarders[(df5['micu_team'] == 1)] = (df5['team_census'] - (8 - df5['cc7d_boarder_count']))
-
-# Add a column that estimates the EXPECTED number of remaining beds in the nominal ICU of the team caring for the patient
-df5['remaining_beds'] = np.nan
-df5.remaining_beds[df5['micu_team'] == 0] = (
-            8 - (df5['team_census'] - df5['team_outboarders']) - df5['cc6d_boarder_count'])
-df5.remaining_beds[df5['micu_team'] == 1] = (
-            8 - (df5['team_census'] - df5['team_outboarders']) - df5['cc7d_boarder_count'])
-
-# In[15]:
-
-# Add a column that estimates the EXPECTED number of outboarders for the OTHER MICU team
-# (the one NOT taking care of the patient)
-df5['other_expected_team_outboarders'] = np.nan
-df5.other_expected_team_outboarders[(df5['micu_team'] == 0)] = (
-            df5['other_team_census'] - (8 - df5['cc7d_boarder_count']))
-df5.other_expected_team_outboarders[(df5['micu_team'] == 1)] = (
-            df5['other_team_census'] - (8 - df5['cc6d_boarder_count']))
-
-# Add a column that estimates the EXPECTED number of remaining beds in the OTHER MICU
-# (the one NOT taking care of the patient)
-df5['other_remaining_beds'] = np.nan
-df5.other_remaining_beds[(df5['micu_team'] == 0)] = (
-            8 - (df5['other_team_census'] - df5['other_team_outboarders']) - df5['cc7d_boarder_count'])
-df5.other_remaining_beds[(df5['micu_team'] == 1)] = (
-            8 - (df5['other_team_census'] - df5['other_team_outboarders']) - df5['cc6d_boarder_count'])
-
-
-
-# get patients age
-
-age = pd.merge(admission,patients,left_on="SUBJECT_ID",right_on="SUBJECT_ID")
-
-age["AGE"] = (age.ADMITTIME.dt.year - age.DOB.dt.year)
-
-age.loc[age.AGE>200,"AGE"]= 89
+age.loc[age.age > 200, "age"] = 89
 
 age = age.rename(columns=str.lower)
 
-df5 = pd.merge(df5,age.loc[:,["hadm_id","age"]],left_on="hadm_id",right_on="hadm_id")
+# %%
 
+### WE DEFINE A FINAL DATA TO WORK ON ###
 
+final_data = df7.copy()
+
+### FINAL DATA
+
+### add age
+
+final_data = pd.merge(final_data, oasis, how="left", on=["hadm_id", "icustay_id"])
+
+final_data = pd.merge(final_data, elixhauser,
+                      how="left",
+                      on=["hadm_id", "subject_id"])
+
+final_data.columns
