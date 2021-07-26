@@ -1,0 +1,225 @@
+---
+title: "Instrumental Variable Example"
+author: "Jeffrey Zhuohui Liang"
+date: "7/25/2021"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+library(MASS)
+library(caret)
+library(tidyverse)
+
+knitr::opts_chunk$set(echo = TRUE,
+                      warning = F,
+                      message = F)
+
+options(digits = 4)
+```
+
+
+# Background
+
+  This example is a modification of the example in Textbook Chapter 19 and its code[1].
+
+  Assumption:  Patient using medical service admission normally will require a MICU unit. We want to look at the association of using other icus instead of micu for patients who normally require MICU and the probability of death within 24 hours of discharge from ICU or death during ICU stay.
+
+
+# Method
+
+## Data Exploration
+
+```{r data_reading,eval = F, include=F}
+example_df = read_csv("data/example_data.csv") %>% 
+  janitor::clean_names()
+
+str(example_df)
+```
+  
+  Whether a patient is cared by a `micu team` is our primary interest predictor, but we assume that there is unobserved confounding that related to both variable and outcome.So the number of `remaining beds` in MICU is defined as our Instrumental Variable.
+  
+  $$Remaining~Beds = (MICU~Capacity - No.of~Inboarders) - (Team~Census - No. of~ Boarders)$$
+  
+  where `inboarders` that represent a MICU bed occupied by a non-MICU patient at the time a MICU patient began their
+ICU stay and we also determine whether the new MICU patient was assigned a bed outside the geographic confines of the MICU, in which case they were classified as a `boarder`.
+  
+  Our instrument is controlled for `team census`(how many patients were assigned to the MICU) size since there is an intuitive inverse relationship between team census size and the number of remaining beds, and it is conceivable that team census size could affect the outcome.
+
+We also control for :
+ 
+\begin{itemize}
+ 
+ \item Age
+ \item Gender
+ \item OASIS score
+ \item team census
+ \item some elixhauser related terms
+ \item number of previously icustay
+ 
+\end{itemize}
+ 
+ and our outcome is expire `within_24_hour` of callout or during ICU stay.
+ 
+ 
+
+```{r data_cleansing}
+example_df = read_csv("data/example_data.csv") %>% 
+  janitor::clean_names() %>% 
+  select(
+    micu_team,
+    age,
+    gender,
+    oasis,
+    remaining_beds,
+    team_census,
+    congestive_heart_failure:depression,
+    num_icustay,
+    within_24_hours
+  ) %>%
+  mutate(across(
+    c(
+      gender,
+      congestive_heart_failure:depression,
+      within_24_hours,
+      micu_team
+    ),
+    as.factor
+  )) %>% # change integer to factor
+  select_if(function(x)
+    length(unique(x)) > 1)   # drop factors that have only 1 value
+
+
+drop_col = example_df %>%  
+  select(where(is.factor)) %>%
+  apply(., 2, function(x)
+    min(plyr::count(x)$freq)) %>% 
+  .[.<=30] %>% 
+  names()
+
+# Combine condition that have less than 10 obervation in group into a combined group
+example_df["other_condition"] = as.factor(apply(example_df[,drop_col],1,function(x) max(as.numeric(x))))
+
+
+# drop factors that contains less than 10 observation per groups
+example_df = example_df[,!colnames(example_df) %in% drop_col]
+
+# Over Sampling to create balance sample
+# example_df = downSample(example_df %>% select(-within_24_hours),example_df$within_24_hours,
+#                       yname = "within_24_hours")
+  
+skimr::skim_without_charts(example_df) # statistics of our example data
+```
+
+
+```{r data_exploration}
+# test the association of outcome and variable of interest
+chisq.test(example_df$within_24_hours,example_df$micu_team) 
+
+# test the association of intrumental variable and variable of interest
+t.test(formula = remaining_beds~micu_team,data = example_df)
+
+# test the assocaition of intrumental variable and outcome
+t.test(formula = remaining_beds~within_24_hours,data = example_df)
+
+corrplot::corrplot(
+  cor(example_df %>% select(where(is.numeric)))
+)
+
+featurePlot(
+  x = model.matrix(within_24_hours ~ ., example_df %>% select(where(is.factor)))[,-1],
+  y = example_df$within_24_hours,
+  scales = list(
+    x = list(relation = "free"),
+    y = list(relation = "free")
+  ),
+  plot = "density",
+  auto.key = list(columns = 2.5)
+)
+```
+
+## Model analysis
+
+
+```{r model_analysis}
+### "Bias" estimation
+
+md_bias = glm(within_24_hours ~ .,
+              family = "binomial",
+              data = example_df[,!colnames(example_df) %in% "remaining_beds"])
+
+broom::tidy(md_bias) %>%
+  head() %>%
+  knitr::kable(digits = 4,
+               caption = "Biased Model Log Odd ratio Estimatiom")
+```
+
+
+  The coefficient we estimate is Logarithm of Odd Ratio(OR), so we need to apply exponential if we want to inference on OR instead of Log Odd.
+
+
+```{r odd_ratio}
+broom::tidy(md_bias) %>%
+  mutate(
+    lower = exp(estimate + qnorm(0.025) * std.error),
+    upper = exp(estimate + qnorm(0.975) * std.error),
+        estimate = exp(estimate)
+  ) %>%
+  relocate(term, lower, estimate, upper) %>% 
+  head() %>% 
+  knitr::kable(digits = 4,
+               caption = "Biased Model Odd ratio Estimatiom")
+```
+
+
+## Instumental Analysis
+
+  In economics analysis, 2-stage-least-square(2SLS) is used to estimate the adjusted effects of endogenuous variables. But the estimation is different if we consider categorical outcome and predictors. Detailed of estimation method is listed in the reference[2]. We will use `ivtools` packages[3] for this example.
+
+
+```{r ivtools}
+confounders = paste0(
+  colnames(example_df)[!colnames(example_df) %in% c("micu_team","remaining_beds","within_24_hours")],
+  collapse = "+")
+
+stage_1  = as.formula(
+  paste0("micu_team~remaining_beds+",confounders)
+)
+
+stage_2 = as.formula(
+  paste0("within_24_hours~micu_team+",confounders)
+)
+
+md_ivtools =
+  ivtools::ivglm(
+    estmethod = "ts",
+    fitX.LZ = glm(stage_1, family = "binomial", data = example_df),
+    fitY.LX = glm(stage_2,
+                  family = "binomial",
+                  data = example_df),
+    data = example_df
+  )
+
+bind_cols(rownames(summary(md_ivtools)$coeff), as_tibble(summary(md_ivtools)$coeff))  %>%
+  rename(term = `...1`) %>% 
+  janitor::clean_names() %>% 
+  mutate(
+    lower = exp(estimate + qnorm(0.025) * std_error),
+    upper = exp(estimate + qnorm(0.975) * std_error),
+    estimate = exp(estimate)
+  ) %>%
+  relocate(term, lower, estimate, upper) %>%
+  head() %>% 
+  knitr::kable(digits = 4,
+               caption = "Intrumental Variable Model Odd ratio Estimatiom")
+```
+
+  In this example, we can see that after adjusting unobserved confounding in our variable of interest, the effect of variable of interest became not statistically significant, compared to a statistically significant protective effect in the unadjust model.
+
+# Reference
+
+
+[1] https://github.com/MIT-LCP/critical-data-book/tree/master/part_iii/chapter_19
+
+[2] http://www-stat.wharton.upenn.edu/~dsmall/BCai2009_SIM_Final.pdf
+
+[3] https://cran.r-project.org/web/packages/ivtools/ivtools.pdf

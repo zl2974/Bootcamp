@@ -100,7 +100,7 @@ df5['micu_team'] = 0
 
 # Create columns that specify how many non-MICU patients were occupying MICU beds at the time
 # each patient was admitted/transferred to the care of a MICU team
-df5['cc6d_boarder_count'] = np.nan
+# df5['cc6d_boarder_count'] = np.nan
 df5['total_boarder_count'] = np.nan
 
 for row_index, row in df5.iterrows():
@@ -331,21 +331,24 @@ df7.shape
 
 df7 = df7.loc[:, ~df7.columns.duplicated()]
 
-indicator = pd.DataFrame(df7.groupby('subject_id_x').outtime.max())
 
-indicator = indicator.reset_index()
-indicator.columns = ['subject_id_x', 'lasttime']
-
-indicator
-
-indicator.lasttime.dt.date
+df7["lasttime"] = df7.groupby("subject_id_x")["outtime"].transform(lambda x: x.max())
+# indicator = pd.DataFrame(df7.groupby('subject_id_x').outtime.max())
+#
+# indicator = indicator.reset_index()
+# indicator.columns = ['subject_id_x', 'lasttime']
+#
+# indicator
+#
+# indicator.lasttime.dt.date
 
 # %%
 
-df8 = pd.merge(df7, indicator, how='left')
+df8 = df7.copy()
 df8 = df8.loc[df8.outtime == df8.lasttime, :]
 
-df8 = df8.sort_values('outcometime').groupby("subject_id_x").tail(1)
+# df8 = df8.sort_values('outcometime').groupby("subject_id_x").tail(1)
+df8 = df8.loc[df8.groupby("subject_id_x")["lasttime"].idxmax()]
 
 df8.groupby("subject_id_x").size().sort_values()
 
@@ -370,6 +373,16 @@ df8.groupby(["boarder_status", "expire_flag"]).size()
 
 df8.groupby(["boarder_status", "within_24_hours"]).size()
 
+num_icu = transfers.copy()
+
+num_icu["num_icustay"] = num_icu.groupby("subject_id")["icustay_id"]. \
+    transform(lambda x: x.count())
+
+# num_icu.loc[:,["subject_id","num_icustay"]]
+df8 = pd.merge(df8, num_icu.loc[:, ["subject_id", "num_icustay"]].drop_duplicates(), how="left", left_on="subject_id_x",
+               right_on="subject_id")
+
+df8 = df8.loc[:, ~df8.columns.duplicated()]
 # %%
 
 a = 5544
@@ -414,28 +427,23 @@ df7.loc[df7.subject_id_x == 109, ['dod']]
 
 # %%
 
-age = pd.merge(admissions, patients, on="subject_id")
-
-age["age"] = (age.admittime.dt.year - age.dob.dt.year)
-
-age.loc[age.age > 200, "age"] = 89
-
-age = age.rename(columns=str.lower)
-
-# %%
-
 ### WE DEFINE A FINAL DATA TO WORK ON ###
 
-final_data = df7.copy()
+final_data = df8.copy()
 
 ### FINAL DATA
 
 ### add age
 
-final_data = pd.merge(final_data, oasis, how="left", on=["hadm_id", "icustay_id"])
+final_data = pd.merge(final_data, oasis, how="left",
+                      left_on=["subject_id", "hadm_id", "icustay_id"],
+                      right_on=["subject_id", "hadm_id", "icustay_id"])
 
 final_data = pd.merge(final_data, elixhauser,
                       how="left",
-                      on=["hadm_id", "subject_id"])
+                      left_on=["hadm_id", "subject_id"],
+                      right_on=["hadm_id", "subject_id"])
 
-final_data.columns
+final_data.head()
+
+final_data.to_csv("./data/example_data.csv")
