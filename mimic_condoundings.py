@@ -10,6 +10,7 @@ transfers = pd.read_csv("./data/TRANSFERS.csv", parse_dates=['INTIME', 'OUTTIME'
 callout = pd.read_csv("./data/CALLOUT.csv", parse_dates=['OUTCOMETIME'])
 patients = pd.read_csv("./data/PATIENTS.csv", parse_dates=['DOD', 'DOB', 'DOD_HOSP', 'DOD_SSN'])
 admissions = pd.read_csv("./data/ADMISSIONS.csv", parse_dates=["ADMITTIME"])
+drgcodes = pd.read_csv("./data/DRGCODES.csv")
 
 oasis = pd.read_csv("./data/oasis.csv")
 elixhauser = pd.read_csv("./data/elixhauser.csv")
@@ -19,15 +20,16 @@ transfers.columns = transfers.columns.str.lower()
 callout = callout.rename(columns=str.lower)
 patients = patients.rename(columns=str.lower)
 admissions = admissions.rename(columns=str.lower)
+drgcodes  = drgcodes.rename(columns = str.lower)
 
-# In[ ]:
+# ]:
 
 # Load the publicly accessible version of the Services table
 # and date restrict it simply to reduce the size slightly by eliminating
 # entries far outside the dates of interest
 services = services[services['transfertime'] > pd.Timestamp('20010101')]
 
-# In[ ]:
+# ]:
 
 # Create a 'med_service_only' dataframe: essentially a copy of the Services table that only contains entries
 # related to those patients who were taken care of exclusively by the MED service during their hospital admission.
@@ -39,13 +41,13 @@ med_service_only = one_service_only[one_service_only['curr_service'] == 'MED']
 
 # %%
 
-# In[ ]:
+# ]:
 # Left join transfers to med_service_only.
 # This creates a dataframe 'df' where every transfer in the database is represented, but only those patients
 # taken care of exclusively by the MED service during their stay have data from the Services table.
 df = pd.merge(transfers, med_service_only, how='left', on='hadm_id')
 
-# In[ ]:
+# ]:
 # Remove transfers that are not related to an ICU stay
 df2 = df[df['icustay_id'].notnull()]
 
@@ -57,7 +59,7 @@ df3 = df2[(df2['intime'] > pd.Timestamp('20060410'))]
 # MSICU is a MICU but it is on the 'East Campus' and not of interest in this study.
 df4 = df3[(df3['curr_service'] == 'MED') & (df3['curr_careunit'] != 'MSICU')]
 
-# In[ ]:
+# ]:
 
 # Trim down the dataframe that we will check each MICU patient against to
 # determine the presence of inboarders (non-MICU patients boarding in the MICU)
@@ -82,7 +84,7 @@ df4.shape
 # %%
 
 
-# In[ ]:
+# ]:
 
 # For each patient under the care of a West Campus MICU team, calculate the number of
 # non-MICU patients (i.e. cared for by other ICU teams) physically occupying MICU beds
@@ -130,7 +132,7 @@ df5.head()
 
 # %%
 
-# In[6]:
+#6]:
 
 # Team census and outboarder count for the MICU team taking care of a given patient
 df5['team_census'] = np.nan
@@ -241,7 +243,7 @@ for row_index, row in df5.iterrows():
 # Location restrict to the MSICU
 msicu_transfers = transfers[(transfers['curr_careunit'] == 'MSICU')]
 
-# In[12]:
+#12]:
 
 # Team census and outboarder count for the Med/Surg ICU (an ICU on the hospital's other campus)
 df5['msicu_team_census'] = np.nan
@@ -256,7 +258,7 @@ for row_index, row in df5.iterrows():
 
     df5.loc[row_index, 'msicu_team_census'] = len(census.index)
 
-# In[14]:
+#14]:
 
 # Add a column that estimates the EXPECTED number of outboarders
 df5['expected_team_outboarders'] = np.nan
@@ -270,7 +272,7 @@ df5.remaining_beds[df5['micu_team'] == 0] = (
 df5.remaining_beds[df5['micu_team'] == 1] = (
             8 - (df5['team_census'] - df5['team_outboarders']) - df5['total_boarder_count'])
 
-# In[15]:
+#15]:
 
 # Add a column that estimates the EXPECTED number of outboarders for the OTHER MICU team
 # (the one NOT taking care of the patient)
@@ -443,6 +445,11 @@ final_data = pd.merge(final_data, elixhauser,
                       how="left",
                       left_on=["hadm_id", "subject_id"],
                       right_on=["hadm_id", "subject_id"])
+
+final_data = pd.merge(final_data,drgcodes.loc[:,["hadm_id","drg_code"]],
+                      how="left",
+                      left_on=["hadm_id"],
+                      right_on=["hadm_id"])
 
 final_data.head()
 
