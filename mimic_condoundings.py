@@ -11,10 +11,14 @@ callout = pd.read_csv("./data/CALLOUT.csv", parse_dates=['OUTCOMETIME'])
 patients = pd.read_csv("./data/PATIENTS.csv", parse_dates=['DOD', 'DOB', 'DOD_HOSP', 'DOD_SSN'])
 admissions = pd.read_csv("./data/ADMISSIONS.csv", parse_dates=["ADMITTIME"])
 drgcodes = pd.read_csv("./data/DRGCODES.csv")
+diagnoses_icd = pd.read_csv("./data/DIAGNOSES_ICD.csv")
+d_icd = pd.read_csv("./data/D_ICD_DIAGNOSES.csv")
 
 oasis = pd.read_csv("./data/oasis.csv")
 elixhauser = pd.read_csv("./data/elixhauser.csv")
 
+diagnoses_icd = diagnoses_icd.rename(columns = str.lower)
+d_icd = d_icd.rename(columns=str.lower)
 services.columns = services.columns.str.lower()
 transfers.columns = transfers.columns.str.lower()
 callout = callout.rename(columns=str.lower)
@@ -446,10 +450,14 @@ final_data = pd.merge(final_data, elixhauser,
                       left_on=["hadm_id", "subject_id"],
                       right_on=["hadm_id", "subject_id"])
 
-final_data = pd.merge(final_data,drgcodes.loc[:,["hadm_id","drg_code"]],
-                      how="left",
-                      left_on=["hadm_id"],
-                      right_on=["hadm_id"])
+
+final_data = final_data.merge(diagnoses_icd.loc[(diagnoses_icd.seq_num == 1),["hadm_id","icd9_code"]],
+                              how= "left",
+                              on = "hadm_id")
+
+final_data = final_data.merge(drgcodes.loc[(drgcodes.drg_type == "MS"),["hadm_id","drg_code"]],
+                              how = "left",
+                              on = "hadm_id")
 
 final_data.head()
 
