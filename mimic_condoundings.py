@@ -17,14 +17,14 @@ d_icd = pd.read_csv("./data/D_ICD_DIAGNOSES.csv")
 oasis = pd.read_csv("./data/oasis.csv")
 elixhauser = pd.read_csv("./data/elixhauser.csv")
 
-diagnoses_icd = diagnoses_icd.rename(columns = str.lower)
+diagnoses_icd = diagnoses_icd.rename(columns=str.lower)
 d_icd = d_icd.rename(columns=str.lower)
 services.columns = services.columns.str.lower()
 transfers.columns = transfers.columns.str.lower()
 callout = callout.rename(columns=str.lower)
 patients = patients.rename(columns=str.lower)
 admissions = admissions.rename(columns=str.lower)
-drgcodes  = drgcodes.rename(columns = str.lower)
+drgcodes = drgcodes.rename(columns=str.lower)
 
 # ]:
 
@@ -136,7 +136,7 @@ df5.head()
 
 # %%
 
-#6]:
+# 6]:
 
 # Team census and outboarder count for the MICU team taking care of a given patient
 df5['team_census'] = np.nan
@@ -247,7 +247,7 @@ for row_index, row in df5.iterrows():
 # Location restrict to the MSICU
 msicu_transfers = transfers[(transfers['curr_careunit'] == 'MSICU')]
 
-#12]:
+# 12]:
 
 # Team census and outboarder count for the Med/Surg ICU (an ICU on the hospital's other campus)
 df5['msicu_team_census'] = np.nan
@@ -262,7 +262,7 @@ for row_index, row in df5.iterrows():
 
     df5.loc[row_index, 'msicu_team_census'] = len(census.index)
 
-#14]:
+# 14]:
 
 # Add a column that estimates the EXPECTED number of outboarders
 df5['expected_team_outboarders'] = np.nan
@@ -272,27 +272,27 @@ df5.expected_team_outboarders[(df5['micu_team'] == 1)] = (df5['team_census'] - (
 # Add a column that estimates the EXPECTED number of remaining beds in the nominal ICU of the team caring for the patient
 df5['remaining_beds'] = np.nan
 df5.remaining_beds[df5['micu_team'] == 0] = (
-            8 - (df5['team_census'] - df5['team_outboarders']) - df5['total_boarder_count'])
+        8 - (df5['team_census'] - df5['team_outboarders']) - df5['total_boarder_count'])
 df5.remaining_beds[df5['micu_team'] == 1] = (
-            8 - (df5['team_census'] - df5['team_outboarders']) - df5['total_boarder_count'])
+        8 - (df5['team_census'] - df5['team_outboarders']) - df5['total_boarder_count'])
 
-#15]:
+# 15]:
 
 # Add a column that estimates the EXPECTED number of outboarders for the OTHER MICU team
 # (the one NOT taking care of the patient)
 df5['other_expected_team_outboarders'] = np.nan
 df5.other_expected_team_outboarders[(df5['micu_team'] == 0)] = (
-            df5['other_team_census'] - (8 - df5['total_boarder_count']))
+        df5['other_team_census'] - (8 - df5['total_boarder_count']))
 df5.other_expected_team_outboarders[(df5['micu_team'] == 1)] = (
-            df5['other_team_census'] - (8 - df5['total_boarder_count']))
+        df5['other_team_census'] - (8 - df5['total_boarder_count']))
 
 # Add a column that estimates the EXPECTED number of remaining beds in the OTHER MICU
 # (the one NOT taking care of the patient)
 df5['other_remaining_beds'] = np.nan
 df5.other_remaining_beds[(df5['micu_team'] == 0)] = (
-            8 - (df5['other_team_census'] - df5['other_team_outboarders']) - df5['total_boarder_count'])
+        8 - (df5['other_team_census'] - df5['other_team_outboarders']) - df5['total_boarder_count'])
 df5.other_remaining_beds[(df5['micu_team'] == 1)] = (
-            8 - (df5['other_team_census'] - df5['other_team_outboarders']) - df5['total_boarder_count'])
+        8 - (df5['other_team_census'] - df5['other_team_outboarders']) - df5['total_boarder_count'])
 
 df5['initial_remaining_beds'] = df5['remaining_beds'] + df5['other_remaining_beds'] + df5['msicu_team_census']
 
@@ -336,7 +336,6 @@ list(df7.columns.sort_values())
 df7.shape
 
 df7 = df7.loc[:, ~df7.columns.duplicated()]
-
 
 df7["lasttime"] = df7.groupby("subject_id_x")["outtime"].transform(lambda x: x.max())
 # indicator = pd.DataFrame(df7.groupby('subject_id_x').outtime.max())
@@ -450,15 +449,23 @@ final_data = pd.merge(final_data, elixhauser,
                       left_on=["hadm_id", "subject_id"],
                       right_on=["hadm_id", "subject_id"])
 
+final_data = final_data.merge(diagnoses_icd.loc[(diagnoses_icd.seq_num == 1), ["hadm_id", "icd9_code"]],
+                              how="left",
+                              on="hadm_id")
 
-final_data = final_data.merge(diagnoses_icd.loc[(diagnoses_icd.seq_num == 1),["hadm_id","icd9_code"]],
-                              how= "left",
-                              on = "hadm_id")
-
-final_data = final_data.merge(drgcodes.loc[(drgcodes.drg_type == "MS"),["hadm_id","drg_code"]],
-                              how = "left",
-                              on = "hadm_id")
+final_data = final_data.merge(drgcodes.loc[(drgcodes.drg_type == "MS"), ["hadm_id", "drg_code"]],
+                              how="left",
+                              on="hadm_id")
 
 final_data.head()
+
+drop_columns = [x for x in final_data.columns if
+                any(y in x for y in
+                    ["_x", "_y", "time", "request", "flag", "do", "callout", "submit", "_team", "census_",
+                     "discharge","dbsource","eventtype"])]
+
+final_data.drop(drop_columns, axis="columns",inplace=True)
+
+
 
 final_data.to_csv("./data/example_data.csv")
